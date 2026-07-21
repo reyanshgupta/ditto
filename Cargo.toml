@@ -1,5 +1,5 @@
 [package]
-name = "ditto"
+name = "ditto-cli"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
@@ -11,6 +11,10 @@ homepage = "https://github.com/reyanshgupta/ditto"
 readme = "README.md"
 keywords = ["claude-code", "codex", "profiles", "tui"]
 categories = ["command-line-utilities"]
+
+[[bin]]
+name = "ditto"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.104"
