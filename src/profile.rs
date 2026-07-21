@@ -1,0 +1,274 @@
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process,
+};
+
+use anyhow::{Context, Result, bail};
+use directories::BaseDirs;
+use serde::{Deserialize, Serialize};
+
+pub const DEFAULT_PROFILE: &str = "default";
+const MAX_PROFILE_NAME_LEN: usize = 32;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Profile {
+    pub name: String,
+    pub claude_home: PathBuf,
+    pub codex_home: PathBuf,
+    pub managed: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct Store {
+    root: PathBuf,
+    user_home: PathBuf,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct State {
+    last_profile: Option<String>,
+}
+
+impl Store {
+    pub fn discover() -> Result<Self> {
+        let base_dirs = BaseDirs::new().context("could not determine your home directory")?;
+        let user_home = base_dirs.home_dir().to_path_buf();
+        let root = env::var_os("DITTO_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| user_home.join(".ditto"));
+
+        Ok(Self { root, user_home })
+    }
+
+    #[cfg(test)]
+    pub fn new(root: PathBuf, user_home: PathBuf) -> Self {
+        Self { root, user_home }
+    }
+
+    pub fn list_profiles(&self) -> Result<Vec<Profile>> {
+        self.ensure_storage()?;
+
+        let mut profiles = vec![self.default_profile()];
+        for entry in fs::read_dir(self.profiles_root())
+            .with_context(|| format!("could not read {}", self.profiles_root().display()))?
+        {
+            let entry = entry.context("could not read a profile directory entry")?;
+            if !entry
+                .file_type()
+                .context("could not inspect a profile directory entry")?
+                .is_dir()
+            {
+                continue;
+            }
+
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if validate_profile_name(&name).is_ok() && name != DEFAULT_PROFILE {
+                profiles.push(self.managed_profile(&name));
+            }
+        }
+
+        profiles[1..].sort_unstable_by(|left, right| left.name.cmp(&right.name));
+        Ok(profiles)
+    }
+
+    pub fn create_profile(&self, name: &str) -> Result<Profile> {
+        validate_profile_name(name)?;
+        if name == DEFAULT_PROFILE {
+            bail!("'{DEFAULT_PROFILE}' is reserved for your existing CLI configuration");
+        }
+
+        self.ensure_storage()?;
+        let profile = self.managed_profile(name);
+        let profile_root = self.profile_root(name);
+        fs::create_dir(&profile_root)
+            .with_context(|| format!("profile '{name}' already exists or could not be created"))?;
+
+        let result = (|| {
+            secure_directory(&profile_root)?;
+            fs::create_dir(&profile.claude_home)
+                .with_context(|| format!("could not create {}", profile.claude_home.display()))?;
+            secure_directory(&profile.claude_home)?;
+            fs::create_dir(&profile.codex_home)
+                .with_context(|| format!("could not create {}", profile.codex_home.display()))?;
+            secure_directory(&profile.codex_home)
+        })();
+
+        if let Err(error) = result {
+            let _ = fs::remove_dir_all(&profile_root);
+            return Err(error);
+        }
+
+        Ok(profile)
+    }
+
+    pub fn load_profile(&self, name: &str) -> Result<Profile> {
+        validate_profile_name(name)?;
+        if name == DEFAULT_PROFILE {
+            return Ok(self.default_profile());
+        }
+
+        let profile = self.managed_profile(name);
+        if !self.profile_root(name).is_dir() {
+            bail!("profile '{name}' does not exist; create it with `ditto create {name}`");
+        }
+        Ok(profile)
+    }
+
+    pub fn last_profile(&self) -> Result<Option<String>> {
+        let path = self.state_path();
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let contents = fs::read_to_string(&path)
+            .with_context(|| format!("could not read {}", path.display()))?;
+        let state: State = toml::from_str(&contents)
+            .with_context(|| format!("could not parse {}", path.display()))?;
+        Ok(state.last_profile)
+    }
+
+    pub fn save_last_profile(&self, name: &str) -> Result<()> {
+        self.load_profile(name)?;
+        self.ensure_storage()?;
+
+        let state = State {
+            last_profile: Some(name.to_owned()),
+        };
+        let contents = toml::to_string(&state).context("could not serialize profile state")?;
+        let destination = self.state_path();
+        let temporary = self.root.join(format!(".state.toml.{}.tmp", process::id()));
+
+        fs::write(&temporary, contents)
+            .with_context(|| format!("could not write {}", temporary.display()))?;
+        secure_file(&temporary)?;
+        if let Err(error) = fs::rename(&temporary, &destination) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error)
+                .with_context(|| format!("could not replace {}", destination.display()));
+        }
+        Ok(())
+    }
+
+    fn ensure_storage(&self) -> Result<()> {
+        fs::create_dir_all(self.profiles_root())
+            .with_context(|| format!("could not create {}", self.profiles_root().display()))?;
+        secure_directory(&self.root)?;
+        secure_directory(&self.profiles_root())
+    }
+
+    fn default_profile(&self) -> Profile {
+        Profile {
+            name: DEFAULT_PROFILE.to_owned(),
+            claude_home: self.user_home.join(".claude"),
+            codex_home: self.user_home.join(".codex"),
+            managed: false,
+        }
+    }
+
+    fn managed_profile(&self, name: &str) -> Profile {
+        let root = self.profile_root(name);
+        Profile {
+            name: name.to_owned(),
+            claude_home: root.join("claude"),
+            codex_home: root.join("codex"),
+            managed: true,
+        }
+    }
+
+    fn profiles_root(&self) -> PathBuf {
+        self.root.join("profiles")
+    }
+
+    fn profile_root(&self, name: &str) -> PathBuf {
+        self.profiles_root().join(name)
+    }
+
+    fn state_path(&self) -> PathBuf {
+        self.root.join("state.toml")
+    }
+}
+
+pub fn validate_profile_name(name: &str) -> Result<()> {
+    if name.is_empty() || name.len() > MAX_PROFILE_NAME_LEN {
+        bail!("profile names must contain 1 to {MAX_PROFILE_NAME_LEN} characters");
+    }
+    if !name
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        bail!("profile names may only contain letters, numbers, '-' and '_'");
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn secure_directory(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .with_context(|| format!("could not secure {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn secure_directory(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn secure_file(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("could not secure {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn secure_file(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_unsafe_profile_names() {
+        for name in ["", "../work", "work/client", "has space", "."] {
+            assert!(validate_profile_name(name).is_err(), "accepted {name:?}");
+        }
+    }
+
+    #[test]
+    fn accepts_portable_profile_names() {
+        for name in ["work", "client-1", "personal_2", "Work"] {
+            assert!(validate_profile_name(name).is_ok(), "rejected {name:?}");
+        }
+    }
+
+    #[test]
+    fn creates_and_remembers_an_isolated_profile() -> Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let store = Store::new(
+            temporary.path().join("ditto"),
+            temporary.path().join("home"),
+        );
+
+        let profile = store.create_profile("work")?;
+        assert!(profile.claude_home.is_dir());
+        assert!(profile.codex_home.is_dir());
+        assert!(store.create_profile("work").is_err());
+
+        store.save_last_profile("work")?;
+        assert_eq!(store.last_profile()?.as_deref(), Some("work"));
+        assert_eq!(
+            store
+                .list_profiles()?
+                .into_iter()
+                .map(|profile| profile.name)
+                .collect::<Vec<_>>(),
+            ["default", "work"]
+        );
+        Ok(())
+    }
+}
