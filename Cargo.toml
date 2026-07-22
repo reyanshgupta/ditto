@@ -1,19 +1,19 @@
 [package]
 name = "ditto-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Reyansh Gupta"]
 description = "A terminal profile switcher for Claude Code and Codex"
 license = "MIT"
-repository = "https://github.com/reyanshgupta/ditto"
-homepage = "https://github.com/reyanshgupta/ditto"
+repository = "https://github.com/reyanshgupta/ditto-cli"
+homepage = "https://github.com/reyanshgupta/ditto-cli"
 readme = "README.md"
 keywords = ["claude-code", "codex", "profiles", "tui"]
 categories = ["command-line-utilities"]
 
 [[bin]]
-name = "ditto"
+name = "ditto-cli"
 path = "src/main.rs"
 
 [dependencies]

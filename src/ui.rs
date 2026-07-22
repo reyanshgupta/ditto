@@ -237,7 +237,7 @@ impl<'a> App<'a> {
 
     fn draw_header(&self, frame: &mut Frame, area: Rect) {
         let header = Paragraph::new(Line::from(vec![
-            Span::styled("Ditto", Style::new().fg(DITTO_PURPLE).bold()),
+            Span::styled("Ditto CLI", Style::new().fg(DITTO_PURPLE).bold()),
             Span::raw("  choose a profile, then a tool"),
         ]))
         .alignment(Alignment::Center)

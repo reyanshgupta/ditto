@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "ditto",
+    name = "ditto-cli",
     version,
     about = "Launch Claude Code and Codex with isolated profiles"
 )]

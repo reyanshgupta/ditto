@@ -110,7 +110,7 @@ impl Store {
 
         let profile = self.managed_profile(name);
         if !self.profile_root(name).is_dir() {
-            bail!("profile '{name}' does not exist; create it with `ditto create {name}`");
+            bail!("profile '{name}' does not exist; create it with `ditto-cli create {name}`");
         }
         Ok(profile)
     }

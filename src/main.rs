@@ -12,7 +12,7 @@ use profile::{DEFAULT_PROFILE, Profile, Store};
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("ditto: {error:#}");
+        eprintln!("ditto-cli: {error:#}");
         std::process::exit(1);
     }
 }
@@ -125,11 +125,11 @@ fn resolve_profile(store: &Store, requested_profile: Option<&str>) -> Result<Pro
 fn print_login_instructions(profile: &Profile) {
     println!();
     println!(
-        "Open `ditto`, select '{}', then press l to sign in.",
+        "Open `ditto-cli`, select '{}', then press l to sign in.",
         profile.name
     );
     println!();
     println!("Or authenticate directly:");
-    println!("  ditto claude {} -- auth login", profile.name);
-    println!("  ditto codex {} -- login", profile.name);
+    println!("  ditto-cli claude {} -- auth login", profile.name);
+    println!("  ditto-cli codex {} -- login", profile.name);
 }
