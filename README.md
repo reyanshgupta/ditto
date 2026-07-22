@@ -1,5 +1,6 @@
 # Ditto
 
+[![crates.io](https://img.shields.io/crates/v/ditto-cli.svg)](https://crates.io/crates/ditto-cli)
 [![MIT license](https://img.shields.io/badge/license-MIT-6f42c1.svg)](LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-6f42c1.svg)](https://www.rust-lang.org/)
 
@@ -47,7 +48,13 @@ Building Ditto requires Rust 1.85 or newer.
 
 ## Install
 
-From GitHub:
+From crates.io:
+
+```bash
+cargo install ditto-cli
+```
+
+From the latest GitHub source:
 
 ```bash
 cargo install --git https://github.com/reyanshgupta/ditto
