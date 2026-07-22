@@ -37,6 +37,15 @@ enum Mode {
         input: String,
         error: Option<String>,
     },
+    Renaming {
+        original: String,
+        input: String,
+        error: Option<String>,
+    },
+    Notice {
+        title: &'static str,
+        message: &'static str,
+    },
     ChoosingTool {
         operation: AuthOperation,
     },
@@ -133,6 +142,21 @@ impl<'a> App<'a> {
                     };
                     Action::Continue
                 }
+                KeyCode::Char('e') => {
+                    if self.selected_profile().managed {
+                        self.mode = Mode::Renaming {
+                            original: self.selected_profile().name.clone(),
+                            input: String::new(),
+                            error: None,
+                        };
+                    } else {
+                        self.mode = Mode::Notice {
+                            title: " Cannot rename ",
+                            message: "The default profile represents your existing setup and cannot be renamed.",
+                        };
+                    }
+                    Action::Continue
+                }
                 KeyCode::Char('l') => {
                     self.mode = Mode::ChoosingTool {
                         operation: AuthOperation::Login,
@@ -183,6 +207,52 @@ impl<'a> App<'a> {
                 KeyCode::Char(character) if input.len() < 32 => {
                     input.push(character);
                     *error = None;
+                    Ok(Action::Continue)
+                }
+                _ => Ok(Action::Continue),
+            },
+            Mode::Renaming {
+                original,
+                input,
+                error,
+            } => match key.code {
+                KeyCode::Esc => {
+                    self.mode = Mode::Browsing;
+                    Ok(Action::Continue)
+                }
+                KeyCode::Enter => match self.store.rename_profile(original, input) {
+                    Ok(profile) => {
+                        self.auth.remove(original);
+                        self.profiles = self.store.list_profiles()?;
+                        self.selected = self
+                            .profiles
+                            .iter()
+                            .position(|candidate| candidate.name == profile.name)
+                            .unwrap_or(0);
+                        self.refresh_selected_auth();
+                        self.mode = Mode::Browsing;
+                        Ok(Action::Continue)
+                    }
+                    Err(rename_error) => {
+                        *error = Some(rename_error.to_string());
+                        Ok(Action::Continue)
+                    }
+                },
+                KeyCode::Backspace => {
+                    input.pop();
+                    *error = None;
+                    Ok(Action::Continue)
+                }
+                KeyCode::Char(character) if input.len() < 32 => {
+                    input.push(character);
+                    *error = None;
+                    Ok(Action::Continue)
+                }
+                _ => Ok(Action::Continue),
+            },
+            Mode::Notice { .. } => match key.code {
+                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {
+                    self.mode = Mode::Browsing;
                     Ok(Action::Continue)
                 }
                 _ => Ok(Action::Continue),
@@ -315,6 +385,7 @@ impl<'a> App<'a> {
             shortcut_line(&[
                 ("↑/↓", "select", DITTO_PURPLE),
                 ("n", "new profile", Color::White),
+                ("e", "rename", Color::White),
                 ("r", "refresh status", Color::White),
                 ("q", "quit", Color::White),
             ]),
@@ -351,6 +422,35 @@ impl<'a> App<'a> {
                     lines[2] = Line::styled(error, Style::new().fg(Color::Red));
                 }
                 render_popup(frame, popup, " New profile ", lines);
+            }
+            Mode::Renaming {
+                original,
+                input,
+                error,
+            } => {
+                let popup = centered_rect(64, 8, area);
+                let mut lines = vec![
+                    Line::raw(format!("New name for '{original}':")),
+                    Line::styled(format!("> {input}"), Style::new().fg(DITTO_PURPLE).bold()),
+                    Line::default(),
+                    Line::styled(
+                        "Enter rename  ·  Esc cancel",
+                        Style::new().fg(Color::DarkGray),
+                    ),
+                ];
+                if let Some(error) = error {
+                    lines[2] = Line::styled(error, Style::new().fg(Color::Red));
+                }
+                render_popup(frame, popup, " Rename profile ", lines);
+            }
+            Mode::Notice { title, message } => {
+                let popup = centered_rect(64, 7, area);
+                let lines = vec![
+                    Line::raw(*message),
+                    Line::default(),
+                    Line::styled("Enter or Esc close", Style::new().fg(Color::DarkGray)),
+                ];
+                render_popup(frame, popup, title, lines);
             }
             Mode::ChoosingTool { operation } => {
                 let popup = centered_rect(58, 8, area);

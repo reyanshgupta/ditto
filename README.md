@@ -20,7 +20,7 @@ Ditto CLI takes its name from the shape-shifting Pokémon: one small tool, which
 │                          │ Codex        ○ Sign in required                     │
 ├──────────────────────────┴────────────────────────────────────────────────────┤
 │ c open Claude   x open Codex   l sign in   o sign out                         │
-│ ↑/↓ select      n new profile  r refresh   q quit                             │
+│ ↑/↓ select   n new profile   e rename   r refresh   q quit                   │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -104,10 +104,13 @@ Repeat the sign-in step for the other CLI if the profile uses both.
 | `l` | Sign in with Claude Code or Codex |
 | `o` | Sign out, with confirmation |
 | `n` | Create a profile |
+| `e` | Rename the selected profile |
 | `r` | Refresh authentication status |
 | `q` or `Esc` | Quit or close a dialog |
 
 The selected profile is remembered for the next run.
+
+Renaming keeps the profile's logins, settings, and session history. The built-in `default` profile cannot be renamed.
 
 ## Command-line usage
 
@@ -116,17 +119,18 @@ The TUI is optional. Every launch command works directly from the shell:
 ```bash
 # Profiles
 ditto-cli create work
+ditto-cli rename work client-a
 ditto-cli list
-ditto-cli status work
-ditto-cli paths work
+ditto-cli status client-a
+ditto-cli paths client-a
 
 # Launch a tool
-ditto-cli claude work
-ditto-cli codex work
+ditto-cli claude client-a
+ditto-cli codex client-a
 
 # Pass arguments to the underlying CLI after --
-ditto-cli claude work -- --model opus
-ditto-cli codex work -- --search
+ditto-cli claude client-a -- --model opus
+ditto-cli codex client-a -- --search
 ```
 
 If the profile name is omitted, Ditto CLI uses the last selected profile. Before the first selection it uses `default`.
@@ -134,8 +138,8 @@ If the profile name is omitted, Ditto CLI uses the last selected profile. Before
 You can also call the native authentication commands through a profile:
 
 ```bash
-ditto-cli claude work -- auth login
-ditto-cli codex work -- login
+ditto-cli claude client-a -- auth login
+ditto-cli codex client-a -- login
 ```
 
 ## Where credentials are stored

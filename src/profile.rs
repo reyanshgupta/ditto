@@ -101,6 +101,49 @@ impl Store {
 
         Ok(profile)
     }
+    pub fn rename_profile(&self, current_name: &str, new_name: &str) -> Result<Profile> {
+        validate_profile_name(current_name)?;
+        validate_profile_name(new_name)?;
+        if current_name == DEFAULT_PROFILE {
+            bail!("the default profile cannot be renamed");
+        }
+        if new_name == DEFAULT_PROFILE {
+            bail!("'{DEFAULT_PROFILE}' is reserved for your existing CLI configuration");
+        }
+        if current_name.eq_ignore_ascii_case(new_name) {
+            bail!("the new name must differ by more than capitalization");
+        }
+
+        self.ensure_storage()?;
+        let source = self.profile_root(current_name);
+        if !source.is_dir() {
+            bail!("profile '{current_name}' does not exist");
+        }
+        let destination = self.profile_root(new_name);
+        if destination.exists() {
+            bail!("profile '{new_name}' already exists");
+        }
+
+        let was_selected = self.last_profile()?.as_deref() == Some(current_name);
+        fs::rename(&source, &destination).with_context(|| {
+            format!("could not rename profile '{current_name}' to '{new_name}'")
+        })?;
+
+        if was_selected {
+            if let Err(state_error) = self.save_last_profile(new_name) {
+                if let Err(rollback_error) = fs::rename(&destination, &source) {
+                    bail!(
+                        "profile was renamed, but the selected profile could not be updated: \
+                         {state_error:#}; rollback also failed: {rollback_error}"
+                    );
+                }
+                return Err(state_error)
+                    .context("could not update the selected profile; rename was reverted");
+            }
+        }
+
+        Ok(self.managed_profile(new_name))
+    }
 
     pub fn load_profile(&self, name: &str) -> Result<Profile> {
         validate_profile_name(name)?;
@@ -269,6 +312,47 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["default", "work"]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn renames_profile_data_and_selected_state() -> Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let store = Store::new(
+            temporary.path().join("ditto"),
+            temporary.path().join("home"),
+        );
+        let original = store.create_profile("work")?;
+        std::fs::write(original.claude_home.join("marker"), "kept")?;
+        store.save_last_profile("work")?;
+
+        let renamed = store.rename_profile("work", "client")?;
+
+        assert_eq!(renamed.name, "client");
+        assert_eq!(
+            std::fs::read_to_string(renamed.claude_home.join("marker"))?,
+            "kept"
+        );
+        assert!(store.load_profile("work").is_err());
+        assert_eq!(store.last_profile()?.as_deref(), Some("client"));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_destructive_renames() -> Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let store = Store::new(
+            temporary.path().join("ditto"),
+            temporary.path().join("home"),
+        );
+        store.create_profile("work")?;
+        store.create_profile("client")?;
+
+        assert!(store.rename_profile("default", "native").is_err());
+        assert!(store.rename_profile("work", "default").is_err());
+        assert!(store.rename_profile("work", "client").is_err());
+        assert!(store.rename_profile("work", "Work").is_err());
+        assert!(store.load_profile("work").is_ok());
         Ok(())
     }
 }

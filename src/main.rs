@@ -26,6 +26,7 @@ fn run() -> Result<()> {
         Some(Command::List) => list_profiles(&store),
         Some(Command::Status { profile }) => show_status(&store, profile.as_deref()),
         Some(Command::Create { name }) => create_profile(&store, &name),
+        Some(Command::Rename { profile, new_name }) => rename_profile(&store, &profile, &new_name),
         Some(Command::Paths { profile }) => show_paths(&store, profile.as_deref()),
         Some(Command::Claude(arguments)) => launch_direct(&store, Tool::Claude, arguments),
         Some(Command::Codex(arguments)) => launch_direct(&store, Tool::Codex, arguments),
@@ -95,6 +96,11 @@ fn create_profile(store: &Store, name: &str) -> Result<()> {
     let profile = store.create_profile(name)?;
     println!("Created profile '{}'.", profile.name);
     print_login_instructions(&profile);
+    Ok(())
+}
+fn rename_profile(store: &Store, current_name: &str, new_name: &str) -> Result<()> {
+    let profile = store.rename_profile(current_name, new_name)?;
+    println!("Renamed profile '{current_name}' to '{}'.", profile.name);
     Ok(())
 }
 
